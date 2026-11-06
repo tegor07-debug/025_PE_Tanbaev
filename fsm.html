@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тестирование FSM Мультиварки | ТУСУР</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #090d16;
+            color: #c9d1d9;
+        }
+        .font-mono-lcd {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        /* Node active pulse animation */
+        @keyframes pulse-node {
+            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+            70% { transform: scale(1.02); box-shadow: 0 0 0 12px rgba(59, 130, 246, 0); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+        @keyframes pulse-error {
+            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.8); }
+            70% { transform: scale(1.02); box-shadow: 0 0 0 12px rgba(239, 68, 68, 0); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        .active-state-node {
+            animation: pulse-node 2s infinite;
+            border-color: #3b82f6 !important;
+            background-color: rgba(30, 58, 138, 0.4) !important;
+        }
+        .active-state-error {
+            animation: pulse-error 1s infinite;
+            border-color: #ef4444 !important;
+            background-color: rgba(127, 29, 29, 0.5) !important;
+        }
+
+        /* LCD Display Segment styling */
+        .lcd-display {
+            background-color: #031207;
+            color: #22c55e;
+            text-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+            border: 2px solid #15803d;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between p-3 md:p-6 bg-slate-950 text-slate-200">
+
+    <!-- Header Section -->
+    <header class="max-w-7xl w-full mx-auto mb-6 bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex flex-col md:flex-row justify-between items-center gap-4 shadow-xl">
+        <div class="flex items-center gap-3">
+            <div class="p-3 bg-blue-600/20 border border-blue-500/30 rounded-lg text-blue-400">
+                <i data-lucide="cpu" class="w-6 h-6"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold text-slate-100 flex items-center gap-2">
+                    Эмулятор FSM Мультиварки 
+                    <span class="text-xs font-normal px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">ТУСУР</span>
+                </h1>
+                <p class="text-xs text-slate-400">Интерактивная проверка логики конечного автомата (S0 ... S5)</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-3 text-xs bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+            <div class="flex items-center gap-1.5">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
+                <span class="text-slate-300">Тактовая частота: 1 Гц</span>
+            </div>
+            <span class="text-slate-700">|</span>
+            <div class="text-slate-400">Статус: <span id="systemStatusBadge" class="text-emerald-400 font-semibold">Норма</span></div>
+        </div>
+    </header>
+
+    <!-- Main Grid Workspace -->
+    <main class="max-w-7xl w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6 flex-grow">
+        
+        <!-- LEFT COLUMN: Physical Device Panel & Sensors (5 Cols) -->
+        <section class="lg:col-span-5 flex flex-col gap-6">
+            
+            <!-- Virtual Multicooker Hardware Unit -->
+            <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-2xl flex flex-col justify-between relative overflow-hidden">
+                <div class="flex justify-between items-center mb-4 border-b border-slate-800 pb-3">
+                    <span class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                        <i data-lucide="monitor" class="w-4 h-4 text-slate-500"></i> Панель мультиварки
+                    </span>
+                    <span class="text-[10px] font-mono bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-slate-700">MCU: STM32F103</span>
+                </div>
+
+                <!-- LCD Display -->
+                <div class="lcd-display rounded-xl p-4 mb-5 shadow-inner relative flex flex-col justify-between min-h-[150px]">
+                    <div class="flex justify-between items-start text-xs font-mono mb-2">
+                        <div class="flex items-center gap-2">
+                            <span id="lcdStateTag" class="bg-emerald-950 border border-emerald-500 text-emerald-300 px-2 py-0.5 rounded font-bold">S0: ПОКОЙ</span>
+                            <span id="lcdHeaterIndicator" class="text-slate-600 font-bold flex items-center gap-1">
+                                <i data-lucide="flame" class="w-3.5 h-3.5"></i> ТЭН
+                            </span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span id="lcdBuzzerIndicator" class="text-slate-600 flex items-center gap-1">
+                                <i data-lucide="volume-2" class="w-3.5 h-3.5"></i> СИГНАЛ
+                            </span>
+                            <span id="lcdLockIndicator" class="text-slate-600">
+                                <i data-lucide="lock" class="w-3.5 h-3.5"></i>
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Main Timer / Temp LCD Readout -->
+                    <div class="flex justify-between items-baseline my-2">
+                        <div>
+                            <div class="text-[10px] uppercase text-emerald-600 tracking-wider font-semibold">Программа / Режим</div>
+                            <div id="lcdProgramName" class="text-lg font-bold tracking-wide text-emerald-400">ОЖИДАНИЕ</div>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-3xl font-extrabold font-mono-lcd tracking-widest text-emerald-400" id="lcdTimer">00:00</div>
+                        </div>
+                    </div>
+
+                    <!-- Sub-info status bar -->
+                    <div class="flex justify-between items-center text-xs font-mono pt-2 border-t border-emerald-900/50 text-emerald-600">
+                        <span>ТЕМП: <strong id="lcdTemp" class="text-emerald-400">25°C</strong></span>
+                        <span>КРЫШКА (X1): <strong id="lcdLidStatus" class="text-emerald-400">ЗАКРЫТА</strong></span>
+                    </div>
+                </div>
+
+                <!-- Interactive Manual Adjustment Panel for S4 (Appears when in S4) -->
+                <div id="s4AdjustmentPanel" class="mb-5 p-3.5 bg-purple-950/40 border border-purple-500/40 rounded-xl hidden transition-all">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-xs font-bold text-purple-300 flex items-center gap-1.5">
+                            <i data-lucide="sliders" class="w-3.5 h-3.5 text-purple-400"></i> Ручная коррекция параметров (S4)
+                        </span>
+                        <span class="text-[10px] bg-purple-900/60 text-purple-300 px-2 py-0.5 rounded border border-purple-700/50">Редактирование</span>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-3">
+                        <!-- Time Tuning -->
+                        <div class="bg-slate-950/80 p-2.5 rounded-lg border border-purple-900/40">
+                            <label class="block text-[11px] text-slate-400 mb-1">Время готовки:</label>
+                            <div class="flex items-center justify-between gap-1">
+                                <button onclick="adjustTime(-5)" class="px-2 py-1 bg-purple-900/50 hover:bg-purple-800 text-purple-200 text-xs rounded border border-purple-700 font-bold active:scale-95 transition">-5 мин</button>
+                                <span id="s4TimeVal" class="text-xs font-bold font-mono text-purple-300">30 мин</span>
+                                <button onclick="adjustTime(5)" class="px-2 py-1 bg-purple-900/50 hover:bg-purple-800 text-purple-200 text-xs rounded border border-purple-700 font-bold active:scale-95 transition">+5 мин</button>
+                            </div>
+                        </div>
+
+                        <!-- Temperature Tuning -->
+                        <div class="bg-slate-950/80 p-2.5 rounded-lg border border-purple-900/40">
+                            <label class="block text-[11px] text-slate-400 mb-1">Температура:</label>
+                            <div class="flex items-center justify-between gap-1">
+                                <button onclick="adjustTemp(-5)" class="px-2 py-1 bg-purple-900/50 hover:bg-purple-800 text-purple-200 text-xs rounded border border-purple-700 font-bold active:scale-95 transition">-5°C</button>
+                                <span id="s4TempVal" class="text-xs font-bold font-mono text-amber-300">95°C</span>
+                                <button onclick="adjustTemp(5)" class="px-2 py-1 bg-purple-900/50 hover:bg-purple-800 text-purple-200 text-xs rounded border border-purple-700 font-bold active:scale-95 transition">+5°C</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Physical Control Buttons -->
+                <div class="mb-5">
+                    <label class="block text-xs text-slate-400 font-medium mb-2.5">Кнопки управления (Входы X):</label>
+                    <div class="grid grid-cols-2 gap-3">
+                        <button id="btnMenu" onclick="triggerInput('MENU')" class="group relative bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-100 font-medium py-3 px-4 rounded-xl border border-slate-700 shadow flex items-center justify-center gap-2 transition">
+                            <i data-lucide="layout-grid" class="w-4 h-4 text-blue-400 group-hover:scale-110 transition"></i>
+                            <span>Меню</span>
+                        </button>
+                        <button id="btnStart" onclick="triggerInput('START')" class="group relative bg-emerald-700 hover:bg-emerald-600 active:scale-95 text-white font-semibold py-3 px-4 rounded-xl border border-emerald-600 shadow flex items-center justify-center gap-2 transition">
+                            <i data-lucide="play" class="w-4 h-4 fill-white group-hover:scale-110 transition"></i>
+                            <span>Старт</span>
+                        </button>
+                        <button id="btnSettings" onclick="triggerInput('SETTINGS')" class="group relative bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-100 font-medium py-3 px-4 rounded-xl border border-slate-700 shadow flex items-center justify-center gap-2 transition">
+                            <i data-lucide="sliders" class="w-4 h-4 text-purple-400 group-hover:scale-110 transition"></i>
+                            <span>Настройка (S4)</span>
+                        </button>
+                        <button id="btnCancel" onclick="triggerInput('CANCEL')" class="group relative bg-rose-900/40 hover:bg-rose-800/60 active:scale-95 text-rose-200 font-medium py-3 px-4 rounded-xl border border-rose-700/50 shadow flex items-center justify-center gap-2 transition">
+                            <i data-lucide="square" class="w-4 h-4 text-rose-400 fill-rose-400 group-hover:scale-110 transition"></i>
+                            <span>Отмена / Пауза</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Hardware Sensors & Triggers -->
+                <div class="bg-slate-950 p-4 rounded-xl border border-slate-800">
+                    <span class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
+                        <i data-lucide="toggle-left" class="w-4 h-4 text-amber-400"></i> Переключатели датчиков (Условия X)
+                    </span>
+                    <div class="space-y-3">
+                        <!-- Sensor X1: Lid -->
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <i data-lucide="shield" class="w-4 h-4 text-slate-400"></i>
+                                <span class="text-xs text-slate-300">Крышка закрыта (X1)</span>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="sensorLid" checked onchange="toggleSensor('LID')" class="sr-only peer">
+                                <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-300 after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                            </label>
+                        </div>
+                        
+                        <!-- Child Lock -->
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <i data-lucide="lock" class="w-4 h-4 text-slate-400"></i>
+                                <span class="text-xs text-slate-300">Защита от детей</span>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="sensorChildLock" onchange="toggleSensor('CHILD_LOCK')" class="sr-only peer">
+                                <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-300 after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+                            </label>
+                        </div>
+
+                        <!-- Overheat Trigger -->
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <i data-lucide="thermometer-snowflake" class="w-4 h-4 text-rose-400"></i>
+                                <span class="text-xs text-slate-300">Перегрев (>175°C)</span>
+                            </div>
+                            <button onclick="triggerOverheat()" class="px-3 py-1 bg-rose-950 border border-rose-700/60 hover:bg-rose-900 text-rose-300 text-xs rounded-lg transition">
+                                Симуляция
+                            </button>
+                        </div>
+
+                        <!-- Sensor Fault Trigger -->
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-400"></i>
+                                <span class="text-xs text-slate-300">Сбой датчика ТЭН (Err)</span>
+                            </div>
+                            <button onclick="triggerSensorFault()" class="px-3 py-1 bg-rose-950 border border-rose-700/60 hover:bg-rose-900 text-rose-300 text-xs rounded-lg transition">
+                                Вызвать сбой
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+        </section>
+
+        <!-- RIGHT COLUMN: Interactive FSM Visual Diagram & Log (7 Cols) -->
+        <section class="lg:col-span-7 flex flex-col gap-6">
+            
+            <!-- Graph Visualization Box -->
+            <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-2xl flex flex-col relative overflow-hidden min-h-[380px]">
+                <div class="flex justify-between items-center mb-4 border-b border-slate-800 pb-3">
+                    <span class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                        <i data-lucide="git-fork" class="w-4 h-4 text-blue-400"></i> Граф состояний конечного автомата
+                    </span>
+                    <span class="text-xs text-slate-500 font-mono">Модель FSM (S0-S5)</span>
+                </div>
+
+                <!-- State Graph Grid Nodes -->
+                <div class="relative flex-grow grid grid-cols-3 grid-rows-2 gap-4 p-2 items-center justify-items-center">
+                    
+                    <!-- S0 Node -->
+                    <div id="node-S0" class="w-full h-full p-3 bg-slate-950 border-2 border-slate-700 rounded-xl flex flex-col justify-between transition-all active-state-node">
+                        <div class="flex justify-between items-center">
+                            <span class="font-bold text-sm text-blue-400 font-mono">S0</span>
+                            <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+                        </div>
+                        <div class="text-xs font-semibold text-slate-200 my-1">Покой / Idle</div>
+                        <div class="text-[10px] text-slate-500">ТЭН: Выкл<br>Дисплей: Готов</div>
+                    </div>
+
+                    <!-- S1 Node -->
+                    <div id="node-S1" class="w-full h-full p-3 bg-slate-950 border-2 border-slate-800 rounded-xl flex flex-col justify-between transition-all">
+                        <div class="flex justify-between items-center">
+                            <span class="font-bold text-sm text-blue-400 font-mono">S1</span>
+                            <span class="w-2 h-2 rounded-full bg-slate-700"></span>
+                        </div>
+                        <div class="text-xs font-semibold text-slate-200 my-1">Выбор меню</div>
+                        <div class="text-[10px] text-slate-500">ТЭН: Выкл<br>Выбор программы</div>
+                    </div>
+
+                    <!-- S2 Node -->
+                    <div id="node-S2" class="w-full h-full p-3 bg-slate-950 border-2 border-slate-800 rounded-xl flex flex-col justify-between transition-all">
+                        <div class="flex justify-between items-center">
+                            <span class="font-bold text-sm text-blue-400 font-mono">S2</span>
+                            <span class="w-2 h-2 rounded-full bg-slate-700"></span>
+                        </div>
+                        <div class="text-xs font-semibold text-slate-200 my-1">Приготовление</div>
+                        <div class="text-[10px] text-slate-500">ТЭН: Вкл (100%)<br>Отсчет таймера</div>
+                    </div>
+
+                    <!-- S5 Node (Error) -->
+                    <div id="node-S5" class="w-full h-full p-3 bg-slate-950 border-2 border-slate-800 rounded-xl flex flex-col justify-between transition-all col-start-1 row-start-2">
+                        <div class="flex justify-between items-center">
+                            <span class="font-bold text-sm text-rose-400 font-mono">S5</span>
+                            <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+                        </div>
+                        <div class="text-xs font-semibold text-rose-300 my-1">Авария / Защита</div>
+                        <div class="text-[10px] text-rose-500">ТЭН: Блокировка<br>Ошибка Err</div>
+                    </div>
+
+                    <!-- S4 Node -->
+                    <div id="node-S4" class="w-full h-full p-3 bg-slate-950 border-2 border-slate-800 rounded-xl flex flex-col justify-between transition-all col-start-2 row-start-2">
+                        <div class="flex justify-between items-center">
+                            <span class="font-bold text-sm text-purple-400 font-mono">S4</span>
+                            <span class="w-2 h-2 rounded-full bg-slate-700"></span>
+                        </div>
+                        <div class="text-xs font-semibold text-slate-200 my-1">Ручная коррекция</div>
+                        <div class="text-[10px] text-slate-500">Коррекция параметров<br>До старта / на ходу</div>
+                    </div>
+
+                    <!-- S3 Node -->
+                    <div id="node-S3" class="w-full h-full p-3 bg-slate-950 border-2 border-slate-800 rounded-xl flex flex-col justify-between transition-all col-start-3 row-start-2">
+                        <div class="flex justify-between items-center">
+                            <span class="font-bold text-sm text-emerald-400 font-mono">S3</span>
+                            <span class="w-2 h-2 rounded-full bg-slate-700"></span>
+                        </div>
+                        <div class="text-xs font-semibold text-slate-200 my-1">Автоподогрев</div>
+                        <div class="text-[10px] text-slate-500">ТЭН: Импульс (70-75°C)<br>Поддержание тепла</div>
+                    </div>
+
+                </div>
+
+                <!-- Explanation Banner below graph -->
+                <div class="mt-3 p-2.5 bg-slate-950/80 rounded-lg border border-slate-800/80 text-xs text-slate-400 flex items-center justify-between">
+                    <span id="fsmTransitionDescription" class="italic text-slate-300">Состояние S0: Ожидание ввода команд от пользователя.</span>
+                    <span class="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-400 font-mono">δ(S, X) → S'</span>
+                </div>
+            </div>
+
+            <!-- Execution & Event Log -->
+            <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-2xl flex flex-col flex-grow">
+                <div class="flex justify-between items-center mb-3 border-b border-slate-800 pb-2">
+                    <span class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                        <i data-lucide="terminal" class="w-4 h-4 text-emerald-400"></i> Журнал событий и реакций Y
+                    </span>
+                    <button onclick="clearLog()" class="text-[11px] text-slate-500 hover:text-slate-300 transition">Очистить лог</button>
+                </div>
+
+                <!-- Log Output Box -->
+                <div id="eventLog" class="bg-slate-950 rounded-xl p-3 font-mono text-xs overflow-y-auto max-h-[160px] space-y-1.5 border border-slate-800">
+                    <div class="text-slate-500">[SYSTEM INIT] Запуск эмулятора FSM Микроконтроллера ТУСУР...</div>
+                    <div class="text-slate-500">[INIT] Исходное состояние: S0 (Покой / Idle). ТЭН = OFF, Сигнал = OFF.</div>
+                </div>
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- Footer Information -->
+    <footer class="max-w-7xl w-full mx-auto mt-6 text-center text-xs text-slate-600 border-t border-slate-900 pt-4">
+        Лабораторная работа по курсу «Программная инженерия» | ТУСУР | Студент гр. 025 Танбаев Е.П.
+    </footer>
+
+    <!-- Logic Simulation Engine -->
+    <script>
+        // State Machine Core Variables
+        let currentState = 'S0';
+        let previousStateBeforeS4 = 'S1'; // Origin state when entering S4
+        let timerSeconds = 0;
+        let timerInterval = null;
+        let temperature = 25;
+        let targetTemperature = 100;
+        let customTimeMinutes = 30;
+        let currentProgramName = 'ВАРКА / КРУПЫ';
+        let programIndex = 0;
+        
+        // Preset programs
+        const programs = [
+            { name: 'ВАРКА / КРУПЫ', time: 30, temp: 100 },
+            { name: 'ВЫПЕЧКА',       time: 45, temp: 160 },
+            { name: 'ТУШЕНИЕ',       time: 60, temp: 90  },
+            { name: 'ЖАРКА',         time: 25, temp: 150 },
+            { name: 'СУП',           time: 50, temp: 95  },
+            { name: 'ПАР',           time: 20, temp: 100 }
+        ];
+
+        // Sensor States (Inputs X)
+        const sensors = {
+            lidClosed: true,      // X1
+            childLock: false      // Protection
+        };
+
+        // Initialize Lucide icons
+        lucide.createIcons();
+
+        // Adjusters for S4
+        function adjustTime(delta) {
+            customTimeMinutes = Math.max(5, Math.min(180, customTimeMinutes + delta));
+            if (currentState === 'S2') {
+                timerSeconds = customTimeMinutes * 60;
+            }
+            document.getElementById('s4TimeVal').innerText = `${customTimeMinutes} мин`;
+            logEvent(`[НАСТРОЙКА S4] Время изменено: ${customTimeMinutes} мин`, 'info');
+            updateLCD();
+        }
+
+        function adjustTemp(delta) {
+            targetTemperature = Math.max(40, Math.min(160, targetTemperature + delta));
+            if (currentState === 'S2') {
+                temperature = targetTemperature;
+            }
+            document.getElementById('s4TempVal').innerText = `${targetTemperature}°C`;
+            logEvent(`[НАСТРОЙКА S4] Температура изменена: ${targetTemperature}°C`, 'info');
+            updateLCD();
+        }
+
+        // Core FSM Transition Handler
+        function triggerInput(inputEvent) {
+            // Check Protection first from ANY state
+            if (sensors.childLock && inputEvent !== 'RESET_SAFETY') {
+                logEvent(`[X: БЛОКИРОВКА] Клавиша проигнорирована (Защита от детей)`, 'warning');
+                return;
+            }
+
+            switch(currentState) {
+                case 'S0': // Idle
+                    if (inputEvent === 'MENU') {
+                        currentState = 'S1';
+                        programIndex = 0;
+                        const p = programs[programIndex];
+                        currentProgramName = p.name;
+                        customTimeMinutes = p.time;
+                        targetTemperature = p.temp;
+                        document.getElementById('s4TimeVal').innerText = `${customTimeMinutes} мин`;
+                        document.getElementById('s4TempVal').innerText = `${targetTemperature}°C`;
+                        logTransition('S0', 'S1', 'X: Нажата кнопка "Меню"', `Y: Режим ${p.name} (${p.temp}°C, ${p.time} мин), ТЭН=OFF`);
+                    }
+                    break;
+
+                case 'S1': // Menu Selection
+                    if (inputEvent === 'MENU') {
+                        programIndex = (programIndex + 1) % programs.length;
+                        const p = programs[programIndex];
+                        currentProgramName = p.name;
+                        customTimeMinutes = p.time;
+                        targetTemperature = p.temp;
+                        document.getElementById('s4TimeVal').innerText = `${customTimeMinutes} мин`;
+                        document.getElementById('s4TempVal').innerText = `${targetTemperature}°C`;
+                        logEvent(`[X: МЕНЮ] Переключение программы: ${p.name}`, 'info');
+                        updateLCD();
+                    } else if (inputEvent === 'START') {
+                        if (sensors.lidClosed) { // Condition X1=1 AND X2=1
+                            currentState = 'S2';
+                            timerSeconds = customTimeMinutes * 60;
+                            temperature = targetTemperature;
+                            startTimer();
+                            logTransition('S1', 'S2', 'X: Крышка закрыта (X1=1) AND Старт (X2=1)', `Y: Пуск ТЭН (${targetTemperature}°C), Программа: ${currentProgramName}`);
+                        } else {
+                            logEvent(`[ОШИБКА ПУСКА] Крышка открыта (X1=0)!`, 'error');
+                        }
+                    } else if (inputEvent === 'SETTINGS') {
+                        previousStateBeforeS4 = 'S1';
+                        currentState = 'S4';
+                        // REQUIREMENT: From S1, reset program name to "МУЛЬТИПОВАР / РУЧНОЙ"
+                        currentProgramName = 'МУЛЬТИПОВАР / РУЧНОЙ';
+                        document.getElementById('s4TimeVal').innerText = `${customTimeMinutes} мин`;
+                        document.getElementById('s4TempVal').innerText = `${targetTemperature}°C`;
+                        logTransition('S1', 'S4', 'X: Нажата кнопка "Настройка"', 'Y: Сброс программы на "Мультиповар / Ручной", режим ввода');
+                    } else if (inputEvent === 'CANCEL') {
+                        currentState = 'S0';
+                        logTransition('S1', 'S0', 'X: Кнопка "Отмена"', 'Y: Возврат в покой S0');
+                    }
+                    break;
+
+                case 'S2': // Active Cooking
+                    if (inputEvent === 'CANCEL') {
+                        stopTimer();
+                        currentState = 'S0';
+                        temperature = 25;
+                        logTransition('S2', 'S0', 'X: Кнопка "Отмена/Пауза"', 'Y: Отключение ТЭН, возврат в покой S0');
+                    } else if (inputEvent === 'SETTINGS') {
+                        // REQUIREMENT: On-the-fly tuning during S2 retains original program name
+                        previousStateBeforeS4 = 'S2';
+                        currentState = 'S4';
+                        document.getElementById('s4TimeVal').innerText = `${customTimeMinutes} мин`;
+                        document.getElementById('s4TempVal').innerText = `${targetTemperature}°C`;
+                        logTransition('S2', 'S4', 'X: Коррекция "на ходу"', `Y: Сохранение программы (${currentProgramName}), переход на настройку`);
+                    } else if (inputEvent === 'TIMER_EXPIRED') {
+                        currentState = 'S3';
+                        temperature = 73;
+                        startAutoKeepWarm();
+                        logTransition('S2', 'S3', 'X: Таймер = 0 (Конец готовки)', 'Y: Звуковой сигнал, переключение ТЭН на автоподогрев (70-75°C)');
+                    }
+                    break;
+
+                case 'S3': // Auto Keep-Warm
+                    if (inputEvent === 'CANCEL') {
+                        stopTimer();
+                        currentState = 'S0';
+                        temperature = 25;
+                        logTransition('S3', 'S0', 'X: Кнопка "Отмена"', 'Y: Выключение подогрева, возврат в покой S0');
+                    } else if (inputEvent === 'SETTINGS') {
+                        previousStateBeforeS4 = 'S3';
+                        currentState = 'S4';
+                        document.getElementById('s4TimeVal').innerText = `${customTimeMinutes} мин`;
+                        document.getElementById('s4TempVal').innerText = `${targetTemperature}°C`;
+                        logTransition('S3', 'S4', 'X: Коррекция из автоподогрева', `Y: Сохранение названия ${currentProgramName}, изменение параметров`);
+                    }
+                    break;
+
+                case 'S4': // Manual Tuning
+                    if (inputEvent === 'SETTINGS' || inputEvent === 'START') {
+                        if (previousStateBeforeS4 === 'S2') {
+                            currentState = 'S2';
+                            timerSeconds = customTimeMinutes * 60;
+                            temperature = targetTemperature;
+                            startTimer();
+                            logTransition('S4', 'S2', 'X: Сохранение "на ходу"', `Y: Возврат к готовке (${currentProgramName}): ${targetTemperature}°C, ${customTimeMinutes} мин`);
+                        } else {
+                            currentState = 'S1';
+                            logTransition('S4', 'S1', 'X: Сохранение настроек', `Y: Параметры установлены (${customTimeMinutes} мин, ${targetTemperature}°C), готовность`);
+                        }
+                    } else if (inputEvent === 'CANCEL') {
+                        currentState = 'S0';
+                        logTransition('S4', 'S0', 'X: Кнопка "Отмена"', 'Y: Сброс параметров, возврат в покой S0');
+                    }
+                    break;
+
+                case 'S5': // Emergency Safety Mode
+                    if (inputEvent === 'CANCEL' || inputEvent === 'RESET') {
+                        currentState = 'S0';
+                        sensors.childLock = false;
+                        document.getElementById('sensorChildLock').checked = false;
+                        temperature = 25;
+                        logTransition('S5', 'S0', 'X: Устранение сбоя / Сброс', 'Y: Снятие блокировки, возврат в покой S0');
+                    }
+                    break;
+            }
+
+            updateUI();
+        }
+
+        // Trigger Emergency S5 from any state
+        function triggerEmergency(reason) {
+            stopTimer();
+            const prevState = currentState;
+            currentState = 'S5';
+            logTransition(prevState, 'S5', `X: СБОЙ (${reason})`, 'Y: Экстренное отключение ТЭН, Сирена, Вывод Err');
+            updateUI();
+        }
+
+        function triggerOverheat() {
+            temperature = 180;
+            triggerEmergency('Перегрев T > 175°C');
+        }
+
+        function triggerSensorFault() {
+            triggerEmergency('Короткое замыкание термодатчика');
+        }
+
+        // Sensor Switches
+        function toggleSensor(sensorType) {
+            if (sensorType === 'LID') {
+                sensors.lidClosed = document.getElementById('sensorLid').checked;
+                logEvent(`[ДАТЧИК X1] Крышка: ${sensors.lidClosed ? 'ЗАКРЫТА' : 'ОТКРЫТА'}`, 'info');
+                if (!sensors.lidClosed && currentState === 'S2') {
+                    triggerEmergency('Открытие крышки во время готовки!');
+                }
+            } else if (sensorType === 'CHILD_LOCK') {
+                sensors.childLock = document.getElementById('sensorChildLock').checked;
+                if (sensors.childLock) {
+                    triggerEmergency('Активирована защита от детей');
+                }
+            }
+            updateLCD();
+        }
+
+        // Timers
+        function startTimer() {
+            stopTimer();
+            timerInterval = setInterval(() => {
+                if (timerSeconds > 0) {
+                    timerSeconds--;
+                    updateLCD();
+                } else {
+                    stopTimer();
+                    triggerInput('TIMER_EXPIRED');
+                }
+            }, 1000);
+        }
+
+        function startAutoKeepWarm() {
+            stopTimer();
+            timerSeconds = 0;
+            timerInterval = setInterval(() => {
+                timerSeconds++;
+                updateLCD();
+            }, 1000);
+        }
+
+        function stopTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+        }
+
+        // UI Updates
+        function updateUI() {
+            const nodes = ['S0', 'S1', 'S2', 'S3', 'S4', 'S5'];
+            nodes.forEach(n => {
+                const el = document.getElementById(`node-${n}`);
+                el.classList.remove('active-state-node', 'active-state-error');
+                if (n === currentState) {
+                    if (n === 'S5') {
+                        el.classList.add('active-state-error');
+                    } else {
+                        el.classList.add('active-state-node');
+                    }
+                }
+            });
+
+            const s4Panel = document.getElementById('s4AdjustmentPanel');
+            if (currentState === 'S4') {
+                s4Panel.classList.remove('hidden');
+            } else {
+                s4Panel.classList.add('hidden');
+            }
+
+            const descMap = {
+                'S0': 'Состояние S0: Ожидание. ТЭН обесточен, система готова к выбору.',
+                'S1': 'Состояние S1: Режим выбора программы меню.',
+                'S2': 'Состояние S2: Нагрев ТЭН, запущен отсчет таймера.',
+                'S3': 'Состояние S3: Автоподогрев (70-75°C).',
+                'S4': 'Состояние S4: Ручная коррекция времени и температуры.',
+                'S5': 'Состояние S5: АВАРИЯ / ЗАЩИТА. Все ТЭНы заблокированы!'
+            };
+            document.getElementById('fsmTransitionDescription').innerText = descMap[currentState];
+
+            updateLCD();
+        }
+
+        function updateLCD() {
+            const stateTag = document.getElementById('lcdStateTag');
+            const timerEl = document.getElementById('lcdTimer');
+            const tempEl = document.getElementById('lcdTemp');
+            const progEl = document.getElementById('lcdProgramName');
+            const heaterEl = document.getElementById('lcdHeaterIndicator');
+            const buzzerEl = document.getElementById('lcdBuzzerIndicator');
+            const lidEl = document.getElementById('lcdLidStatus');
+            const lockEl = document.getElementById('lcdLockIndicator');
+
+            lidEl.innerText = sensors.lidClosed ? 'ЗАКРЫТА' : 'ОТКРЫТА';
+            lidEl.className = sensors.lidClosed ? 'text-emerald-400' : 'text-rose-400';
+
+            lockEl.className = sensors.childLock ? 'text-amber-400 animate-pulse' : 'text-slate-600';
+
+            switch(currentState) {
+                case 'S0':
+                    stateTag.innerText = 'S0: ПОКОЙ';
+                    stateTag.className = 'bg-slate-900 border border-slate-700 text-slate-300 px-2 py-0.5 rounded font-bold';
+                    progEl.innerText = 'ОЖИДАНИЕ';
+                    timerEl.innerText = '00:00';
+                    tempEl.innerText = '25°C';
+                    heaterEl.className = 'text-slate-600 font-bold flex items-center gap-1';
+                    buzzerEl.className = 'text-slate-600 flex items-center gap-1';
+                    break;
+
+                case 'S1':
+                    stateTag.innerText = 'S1: ВЫБОР';
+                    stateTag.className = 'bg-blue-950 border border-blue-500 text-blue-300 px-2 py-0.5 rounded font-bold';
+                    progEl.innerText = currentProgramName;
+                    timerEl.innerText = `${String(customTimeMinutes).padStart(2, '0')}:00`;
+                    tempEl.innerText = `${targetTemperature}°C`;
+                    heaterEl.className = 'text-slate-600 font-bold flex items-center gap-1';
+                    break;
+
+                case 'S2':
+                    stateTag.innerText = 'S2: НАГРЕВ';
+                    stateTag.className = 'bg-amber-950 border border-amber-500 text-amber-300 px-2 py-0.5 rounded font-bold';
+                    progEl.innerText = currentProgramName;
+                    const mins = String(Math.floor(timerSeconds / 60)).padStart(2, '0');
+                    const secs = String(timerSeconds % 60).padStart(2, '0');
+                    timerEl.innerText = `${mins}:${secs}`;
+                    tempEl.innerText = `${temperature}°C`;
+                    heaterEl.className = 'text-amber-400 font-bold flex items-center gap-1 animate-pulse';
+                    break;
+
+                case 'S3':
+                    stateTag.innerText = 'S3: ПОДОГРЕВ';
+                    stateTag.className = 'bg-emerald-950 border border-emerald-500 text-emerald-300 px-2 py-0.5 rounded font-bold';
+                    progEl.innerText = 'ПОДОГРЕВ';
+                    const pMins = String(Math.floor(timerSeconds / 60)).padStart(2, '0');
+                    const pSecs = String(timerSeconds % 60).padStart(2, '0');
+                    timerEl.innerText = `${pMins}:${pSecs}`;
+                    tempEl.innerText = '73°C';
+                    heaterEl.className = 'text-emerald-400 font-bold flex items-center gap-1';
+                    break;
+
+                case 'S4':
+                    stateTag.innerText = 'S4: НАСТРОЙКА';
+                    stateTag.className = 'bg-purple-950 border border-purple-500 text-purple-300 px-2 py-0.5 rounded font-bold animate-pulse';
+                    progEl.innerText = currentProgramName;
+                    timerEl.innerText = `${String(customTimeMinutes).padStart(2, '0')}:00`;
+                    tempEl.innerText = `${targetTemperature}°C`;
+                    heaterEl.className = 'text-slate-600 font-bold flex items-center gap-1';
+                    break;
+
+                case 'S5':
+                    stateTag.innerText = 'S5: ОШИБКА';
+                    stateTag.className = 'bg-rose-950 border border-rose-500 text-rose-300 px-2 py-0.5 rounded font-bold animate-bounce';
+                    progEl.innerText = 'ERR-05';
+                    timerEl.innerText = 'ERR!';
+                    tempEl.innerText = `${temperature}°C`;
+                    heaterEl.className = 'text-slate-600 font-bold flex items-center gap-1';
+                    buzzerEl.className = 'text-rose-400 flex items-center gap-1 animate-pulse';
+                    break;
+            }
+        }
+
+        function logTransition(from, to, inputDesc, outputDesc) {
+            const logEl = document.getElementById('eventLog');
+            const time = new Date().toLocaleTimeString();
+            
+            const entry = document.createElement('div');
+            entry.className = 'text-slate-200 border-l-2 border-blue-500 pl-2 my-1';
+            entry.innerHTML = `
+                <span class="text-slate-500">[${time}]</span> 
+                <strong class="text-blue-400">${from} → ${to}</strong> | 
+                <span class="text-amber-300">${inputDesc}</span> 
+                <br><span class="text-emerald-400 text-[11px]">${outputDesc}</span>
+            `;
+            
+            logEl.appendChild(entry);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function logEvent(msg, type = 'info') {
+            const logEl = document.getElementById('eventLog');
+            const time = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            
+            let colorClass = 'text-slate-400';
+            if (type === 'error') colorClass = 'text-rose-400 font-bold';
+            if (type === 'warning') colorClass = 'text-amber-400';
+            
+            entry.className = `${colorClass} text-[11px]`;
+            entry.innerText = `[${time}] ${msg}`;
+            
+            logEl.appendChild(entry);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('eventLog').innerHTML = '<div class="text-slate-500">[СИСТЕМА] Журнал очищен.</div>';
+        }
+
+        window.onload = function() {
+            updateUI();
+        };
+    </script>
+</body>
+</html>
